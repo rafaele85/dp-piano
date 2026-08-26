@@ -9,6 +9,7 @@ from songs import BEAT, DEMO_BEAT, REPEATS, SONGS
 FLASH_ON = 0.12
 FLASH_OFF = 0.10
 FLASH_TIMES = 3
+ERROR_FLASH = 0.3
 
 
 def note_of(entry):
@@ -59,11 +60,15 @@ class Lesson:
         if name:
             self.log(f"level: {name}")
 
-    # ---- what the renderer needs ----
+    # ---- renderer interface ----
 
     @property
     def active(self):
         return self.practising or self.demoing
+
+    @property
+    def score(self):
+        return self.scorer.score
 
     def target_key(self):
         if self.demoing:
@@ -90,14 +95,11 @@ class Lesson:
     def in_error(self, now):
         return now < self.error_until
 
-    @property
-    def score(self):
-        return self.scorer.score
-
     # ---- run control ----
 
     def start(self):
-        name, base = SONGS[self.song_slot]
+        name, base, program = SONGS[self.song_slot]
+        self.audio.set_program(program)
         self.song = list(base) * REPEATS
         self.step = 0
         self.hold_until = 0.0
@@ -175,7 +177,7 @@ class Lesson:
         entry = self.song[self.step]
 
         if key != note_of(entry):
-            self.error_until = now + 0.3
+            self.error_until = now + ERROR_FLASH
             self.scorer.on_wrong()
             self.log(f"  x wrong: {key}, want {note_of(entry)}")
             return
@@ -195,7 +197,7 @@ class Lesson:
             self.scorer.grade_pending(now)
             self.practising = False
             self.hold_until = 0.0
-            self.log("Done.")
+            self.log(f"Done — grade {self.scorer.grade}")
             self._report()
 
     def on_release(self, key):

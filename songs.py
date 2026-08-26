@@ -37,7 +37,8 @@ TWINKLE = [
     ("s", 1, "what"), ("s", 1, "you"), ("a", 2, "are"),
 ]
 
+# (name, notes, GM program)
 SONGS = {
-    "1": ("Himno de la Alegría", ODE_TO_JOY),
-    "3": ("Twinkle Twinkle", TWINKLE),
+    "1": ("Himno de la Alegría", ODE_TO_JOY, 48),   # string ensemble
+    "3": ("Twinkle Twinkle", TWINKLE, 10),          # music box
 }

@@ -41,6 +41,8 @@ LEVELS = {
 
 DEFAULT_LEVEL = "7"
 
+GRADES = [(95, "A"), (85, "B"), (70, "C"), (55, "D")]
+
 
 class Scorer:
     def __init__(self, default_beat, level_slot=DEFAULT_LEVEL):
@@ -72,13 +74,13 @@ class Scorer:
         self.n_short = 0
         self.n_long = 0
         self.n_gap = 0
-        self._pending = None      # (key, press_time, beats)
+        self._pending = None          # (key, press_time, beats)
         self._last_onset = 0.0
         self._last_beats = 0.0
         self._last_release = 0.0
         self.run_start = 0.0
 
-    # ---- scoring ----
+    # ---- score ----
 
     @property
     def score(self):
@@ -86,15 +88,25 @@ class Scorer:
             return 100.0
         return 100.0 * sum(self._recent) / len(self._recent)
 
+    @property
+    def grade(self):
+        s = self.score
+        for threshold, letter in GRADES:
+            if s >= threshold:
+                return letter
+        return "F"
+
     def _record(self, value):
         self._recent.append(value)
+
+    # ---- input events ----
 
     def on_wrong(self):
         self.n_wrong += 1
         self._record(0.0)
 
     def on_correct(self, key, beats, now=None):
-        """Register an accepted press. Returns the expected hold in seconds."""
+        """Register an accepted press. Returns expected hold in seconds."""
         now = now or time.perf_counter()
 
         self.grade_pending(now)
@@ -119,6 +131,9 @@ class Scorer:
         self._last_onset = now
         self._last_beats = beats
         return beats * self.user_beat
+
+    def pending_key(self):
+        return self._pending[0] if self._pending else None
 
     def grade_pending(self, now=None):
         """Grade the note awaiting release. Returns a label or None."""
@@ -146,9 +161,6 @@ class Scorer:
             return f"long ({ratio:.2f}x)"
         return None
 
-    def pending_key(self):
-        return self._pending[0] if self._pending else None
-
     def on_release(self, key, now=None):
         """Returns a duration label if this release completed a graded note."""
         now = now or time.perf_counter()
@@ -167,7 +179,8 @@ class Scorer:
         if not self.graded_any():
             return []
         lines = [
-            f"--- recent {self.score:.0f}/100  ({self.level_name}) ---",
+            f"--- grade {self.grade}   {self.score:.0f}/100  "
+            f"({self.level_name}) ---",
             f"correct {self.n_correct} | wrong key {self.n_wrong} | "
             f"short {self.n_short} | long {self.n_long} | gaps {self.n_gap}",
             f"your tempo: {self.user_beat:.2f}s per beat",
