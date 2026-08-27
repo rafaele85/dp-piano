@@ -1,6 +1,6 @@
 # KD87a Piano Trainer
 
-Turns a Dark Project KD87a keyboard into a piano trainer. Per-key RGB lighting shows which key to play next; the program waits until you play it, grades your accuracy, and plays backing chords that follow your tempo.
+Turns a Dark Project KD87a keyboard into a piano trainer. Per-key RGB lighting shows which key to play next; the program waits until you play it, grades your accuracy, and plays backing chords that follow your tempo. Songs come from Python modules, plain text files, or MIDI files.
 
 ## Hardware protocol
 
@@ -65,7 +65,7 @@ Slots beyond a message's declared length are silently ignored — no error.
   Z  X  C  V  B  N  M                  chord pads: C Dm Em F G Bdim
 ```
 
-`R` and `I` are unmapped — that's where a piano has no black key.
+`R` and `I` are unmapped — that's where a piano has no black key. Playable range is MIDI 60–77.
 
 ## Controls
 
@@ -73,26 +73,80 @@ Slots beyond a message's declared length are silently ignored — no error.
 |---|---|
 | `Space` | Start lesson (demo, then practice) |
 | `2` | Stop and report |
-| `1` / `3` | Select song |
+| `1`–`6` | Select song |
 | `7` / `8` / `9` | Novice / normal / strict |
 | `0` | Toggle backing chords |
 | `Esc` | Quit |
+
+Slot `2` doubles as stop; avoid assigning a song to it.
 
 ## Colours
 
 Green is the note to play now, blue the one after, dim white and dark blue are the resting piano. F1–F11 show remaining hold time (all red = wrong key). F12 is a health light, red through amber to green, tracking accuracy over the last 16 notes.
 
+## Adding songs
+
+Three sources, all discovered at startup. Each declares a `slot` — the number key that selects it.
+
+**Python module** — `songs/name.py`, for songs with chord tracks and lyrics:
+
+```python
+from chords import C, F, G
+
+SLOT = "1"
+NAME = "Example"
+PROGRAM = 0          # GM program for the melody
+ACCOMP = 32          # GM program for the backing
+NOTES = [("a", 1), ("s", 1), ("d", 2)]
+CHORDS = [(C, 0), (G, 2)]
+```
+
+**Plain text** — `songs/text/name.txt`, for hand-entry by non-programmers:
+
+```
+name: Example
+slot: 5
+program: 0
+
+a s d- | f g a--
+```
+
+Settings first, blank line, then notes. Bar lines and line breaks are ignored. Length marks: none = 1 beat, `-` = 2, `--` = 4, `.` = half, `-.` = 1.5. A bare `-` is a rest, added to the previous note.
+
+**MIDI** — drop a `.mid` into `songs/midi/`. The filename becomes the song name; prefix it `4 - Name.mid` to pick a slot. Tempo and instrument are read from the file. Nothing is written back to source, so copyrighted files stay out of the repo — `songs/midi/` and `songs/text/` are gitignored.
+
+MIDI import is lossy by design. The melody track is guessed as the
+highest-register track with enough notes — wrong whenever the tune isn't the
+top voice, and there's currently no way to override it. Chords in that track
+collapse to their top note. The whole piece is transposed by whatever shift
+keeps the most notes inside the 18-key range, and stragglers are clamped to
+the nearest playable pitch, so wide-ranging tunes lose their shape at the
+extremes. Durations are measured onset-to-onset, so rests become extra length
+on the preceding note; they are then snapped to a fixed grid with no triplet
+values, nothing shorter than a sixteenth and nothing longer than four beats.
+The final note's length is a guess, since there is no following onset. Tempo
+is taken from the first `set_tempo` message only, so pieces with tempo changes
+play at their opening speed throughout. Expect a recognisable melody rather
+than a faithful one.
+
 ## Modules
 
 ```
-board.py           HID transport, 132-slot colour buffer
+config.py          tempo, instrument and range constants
+chords.py          chord voicings
 layout.py          key -> (message, slot), key -> MIDI note, colours
-songs.py           melodies, lyrics, chord tracks, instruments
+board.py           HID transport, 132-slot colour buffer
+render.py          single writer thread, LED output
 scoring.py         rolling-window grading, tempo estimation
 lesson.py          demo + practice state machine
 audio.py           FluidSynth with pygame.midi fallback
 accompaniment.py   backing chords that follow the player
-render.py          single writer thread, LED output
+registry.py        song discovery, owns the SONGS table
+textloader.py      plain-text song reader
+midi/parse.py      MIDI melody, tempo and instrument extraction
+midi/mapping.py    pitch fitting: transposition and clamping
+midi/loader.py     directory scan and slot assignment
+songs/             song data only, no code
 piano.py           wiring
 ```
 
@@ -113,6 +167,10 @@ Optional: drop a General MIDI SoundFont (`.sf2`) next to `piano.py` for much bet
 
 The score is a rolling window over the last 16 notes, not a lifetime total, so a bad patch fades rather than sticking. Novice grades key accuracy only; normal and strict add note duration and gaps between notes, judged against your own tempo rather than a fixed metronome.
 
+Tempo is estimated from your own playing, so wait-mode never pushes you — the hold bar and the backing chords both follow whatever speed you settle into.
+
 ## Limitations
 
 Flat keys with no velocity sensing. This trains note reading, chord spelling, and interval geometry — not touch, dynamics, or hand span. A used 49-key MIDI controller works with the same lesson code if you want the physical side.
+
+The song format has no representation for silence, so rests are folded into the preceding note's duration.
