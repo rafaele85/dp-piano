@@ -2,13 +2,14 @@
 
 SPACE  start lesson        1 / 3  pick song
 2      stop                7/8/9  skill level
-ESC    quit
+0      toggle backing      ESC    quit
 """
 
 import atexit
 
 import keyboard
 
+from accompaniment import Accompaniment
 from audio import Audio
 from layout import CHORDS, NOTE_KEYS
 from lesson import Lesson
@@ -21,9 +22,11 @@ def main():
     audio = Audio()
     lesson = Lesson(audio)
     renderer = Renderer(lesson)
+    backing = Accompaniment(lesson, audio)
 
     def shutdown():
         lesson.shutdown()
+        backing.stop()
         renderer.close()
         audio.close()
 
@@ -43,6 +46,9 @@ def main():
             name, notes = played
             print(name, notes)
 
+    def toggle_backing():
+        print(f"backing: {'on' if backing.toggle() else 'off'}")
+
     for key in NOTE_KEYS:
         keyboard.on_press_key(key, lambda e, k=key: on_note_press(k))
         keyboard.on_release_key(key, lambda e, k=key: on_note_release(k))
@@ -59,11 +65,13 @@ def main():
 
     keyboard.on_press_key("space", lambda e: lesson.start())
     keyboard.on_press_key("2", lambda e: lesson.stop())
+    keyboard.on_press_key("0", lambda e: toggle_backing())
 
     renderer.start()
+    backing.start()
 
     print("ASDFGHJKL;' white | WETYUOP black | ZXCVBNM chords")
-    print("SPACE = start | 2 = stop | 1/3 = pick song | 7/8/9 = level")
+    print("SPACE = start | 2 = stop | 1/3 = song | 7/8/9 = level | 0 = backing")
     print(f"level: {lesson.scorer.level_name}")
 
     try:

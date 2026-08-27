@@ -34,11 +34,16 @@ class Lesson:
 
         self.song = []
         self.song_slot = next(iter(SONGS))
+        self.chords = []
+        self.chord_span = 0.0
         self.step = 0
 
         self.practising = False
         self.demoing = False
         self.flashing = False
+
+        self.beat_pos = 0.0
+        self.last_advance = 0.0
 
         self.hold_until = 0.0
         self.hold_span = 0.0
@@ -70,6 +75,10 @@ class Lesson:
     def score(self):
         return self.scorer.score
 
+    @property
+    def user_beat(self):
+        return self.scorer.user_beat
+
     def target_key(self):
         if self.demoing:
             return self._demo_key
@@ -95,13 +104,33 @@ class Lesson:
     def in_error(self, now):
         return now < self.error_until
 
+    # ---- accompaniment interface ----
+
+    def chord_at(self, beat):
+        """Chord notes active at the given beat, or None."""
+        if not self.chords or self.chord_span <= 0:
+            return None
+        pos = beat % self.chord_span
+        active = None
+        for notes, start in self.chords:
+            if start <= pos:
+                active = notes
+            else:
+                break
+        return active if active is not None else self.chords[0][0]
+
     # ---- run control ----
 
     def start(self):
-        name, base, program = SONGS[self.song_slot]
+        name, base, program, chords, accomp_program = SONGS[self.song_slot]
         self.audio.set_program(program)
+        self.audio.set_program(accomp_program, channel=1)
         self.song = list(base) * REPEATS
+        self.chords = list(chords)
+        self.chord_span = sum(beats_of(e) for e in base)
         self.step = 0
+        self.beat_pos = 0.0
+        self.last_advance = 0.0
         self.hold_until = 0.0
         self.scorer.reset()
         self.practising = False
@@ -112,6 +141,12 @@ class Lesson:
         threading.Thread(target=self._demo_run,
                          args=(self._token, list(base)), daemon=True).start()
 
+    def _end_run(self):
+        self.practising = False
+        self.hold_until = 0.0
+        self.last_advance = 0.0
+        self.audio.accomp_off()
+
     def stop(self):
         self._token += 1
         self.demoing = False
@@ -119,8 +154,7 @@ class Lesson:
         self._demo_key = self._demo_next = None
         if self.practising:
             self._report()
-        self.practising = False
-        self.hold_until = 0.0
+        self._end_run()
         self.scorer.grade_pending()
         self.log("Stopped.")
 
@@ -133,12 +167,15 @@ class Lesson:
     # ---- demo ----
 
     def _demo_run(self, token, tune):
+        beat = 0.0
         for i, entry in enumerate(tune):
             if token != self._token:
                 break
             self._demo_key = note_of(entry)
             self._demo_next = (note_of(tune[i + 1])
                                if i + 1 < len(tune) else None)
+            self.beat_pos = beat
+            self.last_advance = time.perf_counter()
             syl = lyric_of(entry)
             if syl:
                 print(syl, end=" ", flush=True)
@@ -147,7 +184,10 @@ class Lesson:
             time.sleep(span * 0.9)
             self.audio.note_off(self._demo_key)
             time.sleep(span * 0.1)
+            beat += beats_of(entry)
         self._demo_key = self._demo_next = None
+        self.last_advance = 0.0
+        self.audio.accomp_off()
         print()
 
         if token == self._token:
@@ -155,6 +195,7 @@ class Lesson:
         if token == self._token:
             self.demoing = False
             self.practising = True
+            self.beat_pos = 0.0
             self.log(f"Your turn — {len(self.song)} notes. "
                      f"Level: {self.scorer.level_name}")
 
@@ -188,6 +229,7 @@ class Lesson:
 
         self.hold_span = self.scorer.on_correct(key, beats_of(entry), now)
         self.hold_until = now + self.hold_span
+        self.last_advance = now
 
         self.step += 1
         self.log(f"{self.step}/{len(self.song)}  {lyric_of(entry)}"
@@ -195,10 +237,11 @@ class Lesson:
 
         if self.step >= len(self.song):
             self.scorer.grade_pending(now)
-            self.practising = False
-            self.hold_until = 0.0
+            self._end_run()
             self.log(f"Done — grade {self.scorer.grade}")
             self._report()
+        else:
+            self.beat_pos += beats_of(entry)
 
     def on_release(self, key):
         if not self.practising:
