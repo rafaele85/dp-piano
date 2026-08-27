@@ -3,8 +3,9 @@
 import threading
 import time
 
+from config import BEAT, DEMO_BEAT, REPEATS
+from registry import SONGS
 from scoring import Scorer
-from songs import BEAT, DEMO_BEAT, REPEATS, SONGS
 
 FLASH_ON = 0.12
 FLASH_OFF = 0.10
@@ -33,9 +34,10 @@ class Lesson:
         self.scorer = Scorer(BEAT)
 
         self.song = []
-        self.song_slot = next(iter(SONGS))
+        self.song_slot = next(iter(SONGS)) if SONGS else None
         self.chords = []
         self.chord_span = 0.0
+        self.demo_beat = DEMO_BEAT
         self.step = 0
 
         self.practising = False
@@ -107,7 +109,6 @@ class Lesson:
     # ---- accompaniment interface ----
 
     def chord_at(self, beat):
-        """Chord notes active at the given beat, or None."""
         if not self.chords or self.chord_span <= 0:
             return None
         pos = beat % self.chord_span
@@ -122,9 +123,18 @@ class Lesson:
     # ---- run control ----
 
     def start(self):
-        name, base, program, chords, accomp_program = SONGS[self.song_slot]
+        if not self.song_slot:
+            self.log("no songs available")
+            return
+        name, base, program, chords, accomp, spb = SONGS[self.song_slot]
+
         self.audio.set_program(program)
-        self.audio.set_program(accomp_program, channel=1)
+        self.audio.set_program(accomp, channel=1)
+
+        beat = spb or BEAT
+        self.scorer.default_beat = beat
+        self.demo_beat = spb or DEMO_BEAT
+
         self.song = list(base) * REPEATS
         self.chords = list(chords)
         self.chord_span = sum(beats_of(e) for e in base)
@@ -179,7 +189,7 @@ class Lesson:
             syl = lyric_of(entry)
             if syl:
                 print(syl, end=" ", flush=True)
-            span = beats_of(entry) * DEMO_BEAT
+            span = beats_of(entry) * self.demo_beat
             self.audio.note_on(self._demo_key)
             time.sleep(span * 0.9)
             self.audio.note_off(self._demo_key)
